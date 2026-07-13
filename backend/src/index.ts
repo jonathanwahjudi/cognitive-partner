@@ -1,4 +1,3 @@
-import 'express-async-errors'
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
@@ -39,6 +38,7 @@ app.post('/api/session/init', (req: AuthRequest, res) => {
     },
     signals: [],
   }
+  console.log(`📋 Session initialized: ${sessionId}`)
   res.status(201).json(sessions[sessionId])
 })
 
@@ -49,6 +49,8 @@ app.post('/api/chat', (req: AuthRequest, res) => {
   if (!message) {
     return res.status(400).json({ error: 'Message required' })
   }
+
+  console.log(`💬 User: ${message}`)
 
   // Determine mode based on keywords
   let mode: 'protector' | 'navigator' | 'anchor' = 'navigator'
@@ -113,6 +115,8 @@ app.post('/api/chat', (req: AuthRequest, res) => {
     stressLevel: Math.max(0, Math.min(100, 40 + stressAdjust)),
     calendarDensity: 50,
   }
+
+  console.log(`🎯 Mode: ${mode}, Energy: ${userState.energyLevel}%, Stress: ${userState.stressLevel}%`)
 
   res.json({
     id: Math.random().toString(36).substring(7),
