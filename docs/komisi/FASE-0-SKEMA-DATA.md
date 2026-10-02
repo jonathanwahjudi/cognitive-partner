@@ -161,3 +161,24 @@ erDiagram
 - `v_company_sales_totals` — Σ S per proyek **sekali** (bukan via alokasi).
 
 Dashboard, laporan, dan export membaca view yang sama dengan filter yang sama.
+
+## 5. Tambahan setelah Validasi terhadap PRD docx (revisi 2)
+
+| Tabel / kolom | Tujuan | Bagian PRD |
+|---|---|---|
+| `sales_people.department` | Field minimum sales | 5 |
+| `project_sales_allocations.role` | Peran sales di proyek (owner/pendukung/…; daftar mengikuti K4) | 5, 20 |
+| `project_revisions.tax_basis` | S dan O wajib basis pajak sama (K2) | 8 |
+| `project_revisions.oc_input_pct`, `oc_input_basis` (`SALES_VALUE`/`PRICELIST`), `oc_amount` | OC persen wajib menyimpan basis dan nominal hasil konversi | 8 |
+| `project_revisions.verification_status`, `verified_by` | Nilai penjualan hanya dari revisi terverifikasi | 6 |
+| `rpe_items.price_basis` (`UNIT`/`TOTAL_BARIS`) | Jelas apakah harga per unit atau total baris | 7 |
+| `cost_margin_revisions.review_flags` | Diskon negatif / rugi ditandai untuk persetujuan | 8 |
+| `target_revisions` partial UNIQUE `(sales_target_id) WHERE status='AKTIF'` | Satu revisi target aktif | 9 |
+| `target_monthly_breakdowns` (opsional) | Σ 3 bulan = target kuartal | 9 |
+| `import_batches` (source_name, source_hash UNIQUE, status), `import_rows` (row_no, payload, errors, project_id) | Import dengan preview, validasi per baris, identitas sumber, idempoten | 6 |
+| `commission_claims.parent_claim_id`, `on_hold_reason` | Klaim ditolak diajukan ulang sebagai revisi; penahanan saat input berubah | 14 |
+| `commission_payments.transaction_reference UNIQUE`, `evidence_attachment_id NOT NULL`, `reversal_reason` | Referensi & bukti transaksi unik; reversal dengan alasan & bukti | 14 |
+| `approval_requests.status = DITAHAN_MENUNGGU_APPROVER` | Proses ditahan bila approver tidak tersedia | 4 |
+| `calculation_jobs` (scope, status, error, idempotency_key) | Kalkulasi besar via job retry-safe | 21 |
+| `uat_cases` (opsional) | Bukti UAT: input, expected, actual, approval pemilik proses | 19 |
+| Permission `cost.view_sensitive` | Data biaya sensitif butuh izin khusus | 4 |

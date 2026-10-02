@@ -1,15 +1,14 @@
 # FASE 0 — Audit Repository, Arsitektur & Rencana Implementasi
 
 **Aplikasi Perhitungan Komisi — acuan: Master Prompt PRD v2.1 Revisi 5**
-Tanggal: 2026-10-01 · Status: **MENUNGGU PERSETUJUAN**
+Tanggal: 2026-10-02 (revisi 2 — divalidasi terhadap PRD docx) · Status: **MENUNGGU PERSETUJUAN**
 
-> ⚠️ **Catatan sumber penting.** File PRD
-> `PRD_Mesin_Perhitungan_Komisi_Revisi_5_Diperbaiki(1).docx` **tidak tersedia**
-> di sesi ini (tidak ada di upload maupun di repository). Dokumen ini disusun
-> **hanya** dari *Master Prompt Claude Code PRD v2.1 Revisi 5* (`.md`). Bagian PRD
-> yang tidak dikutip di master prompt — termasuk rincian lengkap T01–T22, nilai
-> K1–K6, dan bagian PRD lain — **belum terbaca**. RTM di bawah wajib divalidasi
-> ulang terhadap docx sebelum Fase 1 dimulai.
+> **Sumber (revisi 2 dokumen ini).** PRD
+> `PRD_Mesin_Perhitungan_Komisi_Revisi_5_Diperbaiki.docx` (v2.1 Revisi 5, 2 Oktober 2026,
+> Bagian 1–21) **telah dibaca penuh** dan dicocokkan dengan Master Prompt. Referensi
+> `§` pada RTM baris R-01..R-49 merujuk ke Master Prompt; baris R-50 dst. adalah
+> kebutuhan yang **hanya ada di PRD** (lihat §3A untuk peta Bagian PRD → RTM).
+> Bila PRD dan Master Prompt berbeda, **PRD yang berlaku**.
 
 Dokumen pendamping: [`FASE-0-SKEMA-DATA.md`](./FASE-0-SKEMA-DATA.md) (ERD & skema).
 
@@ -176,6 +175,64 @@ Kolom: **DB** = tabel/constraint · **BE** = API/engine · **FE** = UI · **Sec*
 | R-47 | NFR: 20 user, 10k proyek, p95 ≤3 s; session expiry; TLS; secrets env; tidak log password/token; backup harian terenkripsi; RPO 24 j / RTO 8 j, uji restore (§33) | index | logger redaksi | — | — | load test, restore drill | 5 |
 | R-48 | Pembayaran reversal (§35 Fase 4) | `commission_payments` reversal row (negatif, referensi) | service | Pembayaran | approval | T17 | 4 |
 | R-49 | UAT tambahan: retur, pindah kuartal, ubah target, ganti owner, multi-invoice, refund, sales nonaktif, valas, backup restore (§32) | — | — | — | — | UAT-01..09 | 3–5 |
+| R-50 | Data biaya sensitif butuh izin khusus (PRD 4) | permission `cost.view_sensitive` | field-level masking di serializer | kolom biaya disembunyikan | object + field level | T20 ext | 1 |
+| R-51 | Pengaju tidak boleh menyetujui klaim **atau perubahan aturannya sendiri**; jika approver tidak tersedia proses **ditahan** (PRD 4) | CHECK approver ≠ proposer pada semua tabel approval | guard generik `assertNotSelf()`; status `DITAHAN_MENUNGGU_APPROVER` | — | SoD | T20 | 1–3 |
+| R-52 | Sales: departemen, status aktif; penonaktifan tidak menghapus hak (PRD 5) | `sales_people.department`, `is_active` | — | Master Data | — | UAT sales nonaktif | 1 |
+| R-53 | Alokasi punya **peran**; maks. **satu alokasi gabungan per sales per proyek** (PRD 5, 6) | `project_sales_allocations.role`, UNIQUE(rev, sales) | — | Alokasi Sales | — | unit | 1 |
+| R-54 | Nilai penjualan hanya dari revisi proyek **terverifikasi** (PRD 6) | `project_revisions.status = TERVERIFIKASI` | engine hanya baca revisi terverifikasi | — | Finance | unit | 1–2 |
+| R-55 | **Import** proyek: preview, validasi per baris, identitas sumber, laporan error, idempoten (tidak menggandakan proyek) (PRD 6) | `import_batches`, `import_rows`, UNIQUE(source_hash) | import service 2 tahap (preview → commit) | wizard Import | — | integration | 1 |
+| R-56 | Pengakuan sebagian (per invoice/penerimaan) **tidak boleh** diaktifkan lewat opsi bebas (PRD 6) | — | tidak ada toggle | — | — | review | 2 |
+| R-57 | RPE: jelas apakah harga = **per unit atau total baris** (PRD 7) | `rpe_items.price_basis` (`UNIT`/`TOTAL_BARIS`) | engine normalisasi | RPE | — | T08 ext | 1 |
+| R-58 | Perubahan biaya menghasilkan revisi yang dapat ditelusuri; RPE meneruskan ke Cost & Margin otomatis (PRD 7) | revisi RPE → `cost_margin_revisions` | — | — | — | integration | 1 |
+| R-59 | S dan O **basis pajak sama** (K2); OC tidak dimasukkan lagi ke Total Cost (PRD 8) | `tax_basis` di revisi proyek | validasi | — | — | unit | 1 |
+| R-60 | Input OC **persen** wajib minta basis (S atau P); simpan persen, basis, nominal hasil konversi (PRD 8) | `oc_input_pct`, `oc_input_basis`, `oc_amount` | konversi Decimal | form OC | — | unit | 1 |
+| R-61 | Diskon negatif: aturan harus mencakup **atau kalkulasi ditahan untuk ditinjau**; nilai rugi ditandai untuk persetujuan (PRD 8) | `requires_review_flags` | status Terblokir/Ditinjau | badge | — | unit | 1–2 |
+| R-62 | Target: satu revisi aktif; target tahunan = Σ 4 kuartal; bila bulanan dipakai Σ 3 bulan = kuartal; tanpa prorata kecuali kebijakan disetujui; sales baru/mutasi/nonaktif tetap butuh target eksplisit (PRD 9) | partial unique revisi aktif; `target_monthly_breakdowns` (opsional) | validasi | Target | — | unit | 1 |
+| R-63 | Perubahan target di kuartal berjalan: alasan + simulasi dampak + revisi baru + approval; target yang dipakai hasil final tidak boleh ditimpa (PRD 9) | revisi immutable | correction flow | — | Direktur | T13 ext | 1, 4 |
+| R-64 | Grade rule berubah di tengah kuartal → grade before/after dihitung dengan versi yang berlaku **pada proyek tsb.**; versi dipilih per **tanggal efektif proyek**, bukan tanggal klaim/bayar (PRD 11) | snapshot versi per event | engine | — | — | T19 | 2 |
+| R-65 | Total Komisi Sales per periode = Σ hak final dasar + delta adjustment disetujui; jangan jumlahkan revisi pengganti + delta sekaligus (PRD 12 L7, 15) | `v_entitlement_balances` | — | Dashboard | — | T21 | 2, 5 |
+| R-66 | Finalisasi kalkulasi = verifikasi Finance **+** persetujuan Direktur; klaim: Diajukan (sales) → Menunggu Verifikasi (Finance) → Disetujui/Ditolak (Direktur); klaim ditolak dapat diajukan ulang sebagai revisi dengan histori (PRD 14) | `commission_claims.parent_claim_id` | state machine dengan aktor per transisi | Klaim | RBAC per transisi | T20 | 2–3 |
+| R-67 | Klaim disetujui tetap mereservasi saldo belum dibayar; pembayaran mengonsumsi reservasinya sendiri (tidak dikurangi dua kali); saldo negatif = kelebihan bayar, tidak boleh dibayar (PRD 14) | view saldo | service | — | — | T15, T17 | 3 |
+| R-68 | Perubahan input setelah approval **menahan** proses untuk pemeriksaan ulang; pembayaran hanya untuk klaim disetujui yang masih layak (PRD 14) | trigger/flag `on_hold` | guard | badge Ditahan | — | integration | 3 |
+| R-69 | Pembayaran dengan **referensi transaksi unik + bukti**; klaim ditutup hanya bila sisa = 0 dan rekonsiliasi selesai; reversal dengan alasan + bukti (PRD 14) | UNIQUE(payment_reference), attachment wajib | — | Pembayaran | Finance | T15 | 3–4 |
+| R-70 | Daftar klaim memuat sales, pelanggan, proyek, PO, S, O, A, grade, diskon, tarif, hak, diajukan/disetujui/dibayar, saldo, status pelanggan & klaim (PRD 14) | view | — | Klaim Komisi | scope | E2E | 3 |
+| R-71 | Filter wajib laporan: sales, pelanggan, proyek, tahun, kuartal, grade, status; distribusi grade di Dashboard Manajemen (PRD 15) | index | — | Laporan | — | T21 | 5 |
+| R-72 | Koreksi tanggal lintas kuartal memeriksa **kedua** kuartal; perubahan OC/biaya/matriks tanpa perubahan kontribusi hanya hitung ulang hak terdampak; hasil disetujui yang terdampak → persetujuan ulang + **tahan klaim terkait** (PRD 16) | — | impact engine | Koreksi | — | T13 ext | 4 |
+| R-73 | Retur/credit note: tautkan ke proyek asal, koreksi via revisi, **tanpa proyek bernilai negatif palsu** (PRD 16) | CHECK S>0 tetap; `credit_notes.project_id` | — | — | — | UAT retur | 4 |
+| R-74 | Snapshot menyimpan **sumber** (bukan hanya nama versi); urutan & proyek pendahulu dapat direkonstruksi (PRD 17) | `input_snapshot` berisi isi aturan + daftar event pendahulu | — | Histori | — | T13, T14 | 2 |
+| R-75 | Pengaturan nama perusahaan, logo, warna utama/aksen, identitas laporan (PRD 18) | `theme_settings`, `company_settings` | — | Pengaturan | Admin Sistem | screenshot | 1, 5 |
+| R-76 | Persen menampilkan satuan **dan basisnya**; error dekat field + cara memperbaiki (PRD 18) | — | pesan error terstruktur | komponen form | — | E2E | 1 |
+| R-77 | Bukti UAT: input, expected, actual, persetujuan pemilik proses; bug nominal/akses/pembayaran wajib selesai sebelum produksi (PRD 19) | `uat_cases` (opsional) | — | — | — | UAT | 5 |
+| R-78 | Kalkulasi besar memakai **job** dengan status & error jelas; job retry tanpa duplikasi; retensi data disetujui sebelum penghapusan apa pun (PRD 21) | `calculation_jobs` | worker idempoten | status job | — | integration | 2, 5 |
+
+## 3A. Peta Bagian PRD → RTM
+
+| Bagian PRD | Topik | Baris RTM |
+|---|---|---|
+| 1–3 | Gambaran, tujuan, alur, prinsip | R-01..R-04, R-06, R-23 |
+| 4 | Peran & hak akses | R-36, R-50, R-51 |
+| 5 | Model data utama | R-37, R-52, R-53 |
+| 6 | Sales & proyek, pengakuan & urutan | R-08..R-14, R-53..R-56 |
+| 7 | RPE & biaya | R-15..R-18, R-57, R-58 |
+| 8 | Cost & Margin | R-19, R-20, R-59..R-61 |
+| 9 | Target | R-05, R-62, R-63 |
+| 10 | Pencapaian & grade | R-01..R-03, R-06 |
+| 11 | Skema komisi | R-21, R-22, R-64 |
+| 12 | Logika kalkulasi + K5 | R-23..R-25, R-44, R-65 |
+| 13 | Contoh Susan (target Q1 Rp3.000.000.000) | R-02, T01 |
+| 14 | Kelayakan, klaim, pembayaran, anti ganda | R-26..R-32, R-66..R-70 |
+| 15 | Dashboard & laporan | R-39, R-42, R-65, R-71 |
+| 16 | Validasi & koreksi historis, period lock, retur | R-33..R-35, R-72, R-73 |
+| 17 | Audit & reproduksi | R-43, R-74 |
+| 18 | Navigasi & UI | R-38, R-40, R-41, R-75, R-76 |
+| 19 | T01–T22 + UAT | §8, R-49, R-77 |
+| 20 | Keputusan K1–K6 + gate produksi | R-45, R-46, §4 |
+| 21 | Non-fungsional | R-47, R-78 |
+
+**Ketidaksesuaian yang ditemukan:** tidak ada konflik rumus antara PRD dan Master Prompt.
+PRD lebih rinci pada R-50..R-78 (di atas). Satu catatan: PRD §21 menyebut aplikasi
+**berfokus desktop**, sementara Master Prompt §36 meminta uji hingga 390px — keduanya
+dipenuhi (desktop-first, tetap dapat dipakai di tablet/ponsel dengan horizontal scroll).
 
 ---
 
@@ -188,11 +245,16 @@ Master prompt hanya memuat **"Usulan PRD"**. Konsekuensi: aplikasi berjalan pada
 | K | Cakupan | Usulan di master prompt | Konfigurasi yang masih **tidak tersedia** | Status |
 |---|---|---|---|---|
 | **K1** | Pengakuan penjualan & periode | Diakui sekali pada tanggal efektif terverifikasi Finance; kuartal kalender; urut (tanggal, seq) | **Timezone perusahaan**; definisi "tanggal efektif" (BAST? PO? serah terima?); perlakuan retur/pembatalan; proyek pindah kuartal | Usulan — belum disetujui |
-| **K2** | Biaya, pricelist, OC, pajak, faktor, kurs | Rumus §9–§10 | **Nilai faktor biaya** lokal/impor/jasa (hw/sw); **pembagi pricelist `d`**; **basis pajak** (S termasuk/tidak termasuk PPN?); **definisi OC** dan siapa yang menetapkan; **sumber & aturan kurs**; daftar kategori biaya dan `covered_by_factor` | Belum ada nilai |
-| **K3** | Matriks diskon & tarif Grade 1–4 | Metrik lookup = Total Diskon + OC; interval [lower, upper) | **Seluruh band & tarif Grade 1–4**; **domain metrik yang didukung** (mis. apakah diskon negatif/markup didukung, batas atas) untuk validasi gap | Belum ada nilai |
-| **K4** | Penerima, dasar, alokasi | Dasar A = S−O; Komisi = A × rate × alokasi; Σ kontribusi = Σ alokasi = 100%, beda dengan approval Direktur | Jenis hak (`entitlement_type`) selain "dasar"? Siapa yang boleh menjadi penerima (sales nonaktif? manajer?) | Usulan — belum disetujui |
-| **K5** | Presisi, rounding, batas nominal | Decimal; % ≥6 desimal; round sekali per entitlement; Rp1 HALF_UP | **"Batas nominal"** (plafon/min komisi?) belum dijelaskan | Usulan — belum disetujui |
-| **K6** | Eligibility, CN/refund/dispute, koreksi, approval, pembayaran | Syarat layak 6 butir (§15) | Matriks approval rinci (batas nominal per approver?); aturan refund setelah komisi dibayar; boleh klaim sebagian dari saldo? | Usulan — belum disetujui |
+| **K2** | Biaya, pricelist, OC, pajak, faktor, kurs | Rumus PRD 7–8 (P = C/d, OC setara = O/P, dst.) | **Nilai faktor** lokal/impor/jasa (hw/sw); **pembagi `d`**; **cakupan biaya dalam faktor**; **perlakuan pajak** (S dan O wajib basis sama); **kebijakan kurs**; **apakah ada komponen jasa yang dikecualikan**; definisi/kepanjangan **OC** (tidak dijabarkan di PRD) | Belum ada nilai |
+| **K3** | Matriks diskon & tarif Grade 1–4 | Metrik = Total Diskon + OC berbasis Pricelist; [lower, upper) | **Seluruh rentang & tarif resmi**; **domain diskon yang diperbolehkan** (termasuk diskon negatif); periode berlaku | Belum ada nilai |
+| **K4** | Penerima, dasar, alokasi | A × tarif individual × alokasi; kedua kelompok alokasi Σ 100%; beda boleh dengan approval | **Hak owner, manager, pre-sales** (bila ada) → menentukan `entitlement_type` | Usulan — belum disetujui |
+| **K5** | Presisi, rounding, batas nominal | Decimal; % ≥6 desimal; half-up per penerima ke Rp1 | **Batas nominal/qty** sesuai bisnis dan tipe data | Usulan — belum disetujui |
+| **K6** | Kelayakan, koreksi, pembayaran | Invoice rekonsiliasi, piutang 0 setelah CN sah, tanpa dispute/refund, kalkulasi final | Definisi **lunas**; perlakuan CN/refund/dispute; alur persetujuan; koreksi periode terkunci; **penanganan kelebihan bayar**; pencatatan **pembayaran parsial** kepada sales | Usulan — belum disetujui |
+
+Sesuai PRD 20: setiap keputusan disimpan dengan status Draft/Disetujui, nilai, tanggal
+efektif, bukti, pemberi keputusan, dan pemberi persetujuan. **Direktur menyetujui, Finance
+memverifikasi implementasi.** Dokumen PRD yang dipakai untuk coding tidak mengubah usulan
+menjadi kebijakan disetujui.
 
 > Nilai uji (faktor 1.1 di T08, tarif 2%/3% di T05/T06, band [0,10%)/[10,20%) di T10)
 > adalah **fixture QA sintetis** — tidak akan dipakai sebagai konfigurasi produksi
@@ -202,7 +264,7 @@ Master prompt hanya memuat **"Usulan PRD"**. Konsekuensi: aplikasi berjalan pada
 
 ## 5. Konfigurasi yang Belum Tersedia (ringkas)
 
-1. File PRD `.docx` lengkap (termasuk definisi rinci T01–T22).
+1. ~~File PRD `.docx`~~ — **sudah diterima dan dibaca.**
 2. Timezone perusahaan.
 3. Definisi "tanggal efektif penjualan".
 4. Daftar kategori biaya + `covered_by_factor` + nilai faktor per kategori/jenis.
@@ -222,17 +284,18 @@ Master prompt hanya memuat **"Usulan PRD"**. Konsekuensi: aplikasi berjalan pada
 
 | # | Risiko / Ambiguitas | Dampak | Mitigasi yang diusulkan |
 |---|---|---|---|
-| A-01 | PRD docx tidak tersedia; hanya master prompt | Requirement terlewat / salah tafsir | User mengunggah docx; RTM direvisi sebelum Fase 1 |
-| A-02 | Repository berisi proyek lain (Cognitive Partner) | Konflik kode/dokumen, kebingungan | User memutuskan (Q-01) |
-| A-03 | Singkatan **OC** tidak didefinisikan di master prompt | Salah sumber data O | Konfirmasi definisi di K2 |
+| A-01 | ~~PRD docx tidak tersedia~~ | — | **Selesai**: PRD dibaca, RTM ditambah R-50..R-78 |
+| A-02 | ~~Repository berisi proyek lain~~ | — | **Diputuskan**: repo baru (lokasi: lihat Q-09) |
+| A-03 | Singkatan **OC** tidak dijabarkan, juga di PRD | Salah sumber data O | Konfirmasi definisi di K2 |
 | A-04 | Basis pajak tidak ditentukan | S, P, margin, dan komisi bisa salah | K2 wajib sebelum produksi |
 | A-05 | Domain metrik lookup tidak ditentukan → validasi "gap pada domain yang didukung" tidak bisa dilakukan | Aktivasi matriks tidak bisa divalidasi | Domain menjadi atribut eksplisit `commission_policy_versions` (min, max) yang wajib diisi |
-| A-06 | Diskon negatif (S > P) — band mana yang berlaku? | No-match → blokir | Default perilaku: **blokir** (sesuai §11) sampai matriks mencakupnya |
+| A-06 | Diskon negatif (S > P) | No-match → blokir | PRD 8: matriks harus mencakup **atau** kalkulasi ditahan untuk ditinjau → default sistem: **Terblokir/Ditinjau** sampai K3 mencakupnya |
 | A-07 | Proyek bersama di mana sales B tidak punya target kuartal itu | Seluruh proyek terblokir atau hanya bagian B? | Usul teknis: blokir per entitlement sales tsb.; **perlu keputusan** (Q-05) |
-| A-08 | Revisi target di tengah kuartal | Grade proyek sebelumnya berubah? | Diperlakukan sebagai koreksi historis (§18) dengan simulasi dampak; perlu konfirmasi |
+| A-08 | Revisi target di tengah kuartal | Grade proyek sebelumnya berubah? | **Dijawab PRD 9 & 16**: revisi baru + alasan + simulasi dampak + approval; target yang dipakai hasil final tidak ditimpa |
 | A-09 | Backdated insertion ke kuartal yang sudah terkunci | Konflik dengan period lock | Wajib reopen workflow (§19) |
 | A-10 | Σ rounded per sales ≠ rounded(total proyek) | Selisih Rp1 | Sesuai §12 L7 total = Σ rounded; ditampilkan transparan |
-| A-11 | Partial claim / partial payment komisi | Desain claim lines | Desain mendukung nominal klaim ≤ saldo bebas; aturan bisnis via K6 |
+| A-11 | Partial payment komisi | Desain claim lines | **PRD 14**: beberapa transaksi pembayaran atas satu klaim disetujui diperbolehkan; tetap tunduk K6 |
+| A-18 | Aplikasi web butuh server (Node.js + PostgreSQL); **iPad tidak dapat menjalankan server** ini secara native | Aplikasi tidak bisa "dijalankan dari folder Downloads iPad" | Kode disimpan di repo baru; dijalankan di server/cloud/PC dan dibuka lewat browser iPad (Q-09, Q-08) |
 | A-12 | Dispute / refund setelah komisi dibayar | Overpayment | Overpayment case manual, tanpa pemotongan otomatis (§18) |
 | A-13 | Performa rekalkulasi kuartal saat koreksi besar | Lambat | Rekalkulasi per (sales, kuartal) saja; batch job retry-safe |
 | A-14 | Kebocoran data antar sales | Pelanggaran akses | Object-level scope di layer query + test T20 |
@@ -252,7 +315,8 @@ untuk fase dengan UI), laporan format §37, **STOP menunggu persetujuan**.
 - Migrasi: users/roles/permissions/teams, sales_people, customers, projects + revisions,
   allocations, targets + revisions, RPE + cost lines, cost_margin_revisions,
   business_decisions (K1–K6), company/theme settings, attachments, audit_events (append-only).
-- Auth session + RBAC + object-level scope middleware; audit middleware.
+- Auth session + RBAC + object-level scope middleware (termasuk izin khusus data biaya sensitif, PRD 4); audit middleware.
+- Import proyek 2 tahap (preview → commit) dengan validasi per baris dan idempotensi (PRD 6).
 - Engine: `costMargin()` (R-15..R-20) + util Decimal/kuartal.
 - UI dasar: layout, navigasi minimum, login, Master Data, Proyek, Alokasi, Target, RPE,
   Cost & Margin, Pengaturan › Keputusan K1–K6; badge SIMULASI; seluruh state wajib.
@@ -270,6 +334,7 @@ untuk fase dengan UI), laporan format §37, **STOP menunggu persetujuan**.
 - Invoice, receipts, receipt allocation, credit note, dispute; eligibility evaluator.
 - Klaim + claim lines + reservasi saldo, approval (SoD), pembayaran manual sebagian/penuh.
 - Idempotency, row lock, partial unique index.
+- Klaim ditolak → ajukan ulang sebagai revisi; penahanan otomatis bila input berubah setelah approval (PRD 14).
 - Test: T15 (uji konkuren nyata ke Postgres), T18, T20.
 
 ### Fase 4 — Historical Corrections & Period Lock
@@ -304,8 +369,9 @@ untuk fase dengan UI), laporan format §37, **STOP menunggu persetujuan**.
 
 | ID | Pertanyaan |
 |---|---|
-| **Q-01** | Repository ini berisi proyek *Cognitive Partner*. Apakah aplikasi komisi dibangun **di repo ini** (kode lama dipindah ke `legacy/` atau dihapus), atau di **repo baru**? |
-| **Q-02** | Mohon unggah `PRD_Mesin_Perhitungan_Komisi_Revisi_5_Diperbaiki(1).docx` agar RTM dapat divalidasi penuh. |
+| ~~Q-01~~ | **Dijawab:** repo baru. |
+| ~~Q-02~~ | **Dijawab:** PRD diterima. |
+| **Q-09** | Repo baru "di iPad, folder Downloads": saya bekerja di container cloud dan **tidak dapat menulis ke iPad**. Pilihan: (a) repo GitHub baru (mis. `jonathanwahjudi/aplikasi-komisi`) yang dapat dibuka/diunduh dari iPad; (b) file `.zip` yang dikirim ke Anda untuk disimpan ke Downloads; (c) keduanya. |
 | **Q-03** | Setujui stack usulan (TypeScript/Express/PostgreSQL/Kysely/React/Vite)? |
 | **Q-04** | Timezone perusahaan yang disetujui (K1)? |
 | **Q-05** | Bila salah satu sales di proyek bersama tidak punya target valid: blokir seluruh proyek atau hanya entitlement sales tersebut? |
@@ -313,7 +379,7 @@ untuk fase dengan UI), laporan format §37, **STOP menunggu persetujuan**.
 | **Q-07** | Autentikasi: akun lokal (username/password) cukup untuk MVP, atau wajib SSO (Google Workspace/Microsoft)? |
 | **Q-08** | Target hosting UAT/produksi (VPS, cloud, on-premise)? |
 
-Q-04..Q-06 tidak memblokir Fase 1 (sistem tetap mode SIMULASI); Q-01 dan Q-03 memblokir.
+Q-04..Q-08 tidak memblokir Fase 1 (sistem tetap mode SIMULASI); Q-03 dan Q-09 memblokir.
 
 ---
 
