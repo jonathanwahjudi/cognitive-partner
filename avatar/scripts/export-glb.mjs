@@ -1,21 +1,19 @@
-// Builds the avatar and writes model/companion.glb.
+// Builds the avatar in headless Chromium (textures are painted on a canvas) and writes model/companion.glb.
 // Usage: npm run export
 import { writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { buildAvatar } from '../src/buildAvatar.js';
+import path from 'node:path';
+import { openPage, ROOT } from './serve.mjs';
 
-// GLTFExporter reads Blobs through FileReader, which Node does not provide.
-globalThis.FileReader ??= class {
-  readAsArrayBuffer(blob) {
-    blob.arrayBuffer().then((buf) => {
-      this.result = buf;
-      this.onloadend?.();
-    });
-  }
-};
-
-const out = fileURLToPath(new URL('../model/companion.glb', import.meta.url));
-const glb = await new GLTFExporter().parseAsync(buildAvatar(), { binary: true });
-writeFileSync(out, Buffer.from(glb));
-console.log(`wrote ${out} (${(glb.byteLength / 1024).toFixed(0)} KB)`);
+const { browser, page, base } = await openPage();
+await page.goto(`${base}/scripts/export.html`);
+await page.waitForFunction(() => window.__glb || window.__error, null, { timeout: 120000 });
+const error = await page.evaluate(() => window.__error);
+if (error) {
+  await browser.close();
+  throw new Error(error);
+}
+const glb = Buffer.from(await page.evaluate(() => window.__glb), 'base64');
+await browser.close();
+const out = path.join(ROOT, 'model/companion.glb');
+writeFileSync(out, glb);
+console.log(`wrote ${out} (${(glb.length / 1024).toFixed(0)} KB)`);

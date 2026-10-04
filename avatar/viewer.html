@@ -5,9 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Companion Avatar Viewer</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #f4f1ee; font-family: system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #f4f1ee; font-family: system-ui, sans-serif; color: #4a403b; }
   canvas { display: block; }
-  #hint { position: fixed; left: 12px; bottom: 10px; color: #8a807a; font-size: 12px; }
+  #ui { position: fixed; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  #ui .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  #ui button { border: 1px solid #d8cfc9; background: #fffaf7; border-radius: 6px; padding: 5px 10px; cursor: pointer; color: inherit; }
+  #ui button.on { background: #4a403b; color: #fff; border-color: #4a403b; }
+  #ui label { display: grid; grid-template-columns: 80px 110px; align-items: center; }
+  body.static #ui { display: none; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -17,13 +22,21 @@
 </script>
 </head>
 <body>
-<div id="hint">Drag to orbit · scroll to zoom · ?view=front|quarter|side|back</div>
+<div id="ui">
+  <div class="row" id="clips"></div>
+  <div class="row" id="views"></div>
+  <div id="morphs"></div>
+</div>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+// ?view=front|quarter|side|back|face  ?anim=Idle|Wave|Talk|none  ?t=seconds  ?morph=smile=1,blink=0.5  ?static=1
 const params = new URLSearchParams(location.search);
+const isStatic = params.has('static');
+if (isStatic) document.body.classList.add('static');
+
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
@@ -43,6 +56,7 @@ key.shadow.mapSize.set(2048, 2048);
 key.shadow.camera.left = key.shadow.camera.bottom = -1.2;
 key.shadow.camera.right = key.shadow.camera.top = 1.2;
 key.shadow.bias = -0.0005;
+key.shadow.normalBias = 0.01;
 scene.add(key);
 const rim = new THREE.DirectionalLight(0xe8eeff, 0.8);
 rim.position.set(-2, 2, -2);
@@ -55,24 +69,74 @@ scene.add(ground);
 
 const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 50);
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.85, 0);
-controls.enableDamping = true;
+controls.enableDamping = !isStatic;
 
-const views = { front: 0, quarter: 35, side: 90, back: 180, face: 0 };
+const VIEWS = { front: [0, 3.6], quarter: [35, 3.6], side: [90, 3.6], back: [180, 3.6], face: [0, 0.6], hand: [60, 0.7] };
 function setView(name) {
-  const deg = views[name] ?? 0;
+  const [deg, dist] = VIEWS[name] ?? VIEWS.quarter;
   const a = THREE.MathUtils.degToRad(deg);
-  const close = name === 'face';
-  const dist = close ? 0.6 : 3.6;
-  controls.target.set(0, close ? 1.53 : 0.84, 0);
-  camera.position.set(Math.sin(a) * dist, close ? 1.54 : 0.95, Math.cos(a) * dist);
+  const ty = name === 'face' ? 1.53 : name === 'hand' ? 0.82 : 0.84;
+  const tx = name === 'hand' ? 0.22 : 0;
+  controls.target.set(tx, ty, 0);
+  camera.position.set(tx + Math.sin(a) * dist, ty + (dist > 1 ? 0.11 : 0.01), Math.cos(a) * dist);
   controls.update();
 }
 setView(params.get('view') || 'quarter');
+for (const v of Object.keys(VIEWS)) {
+  const b = document.createElement('button');
+  b.textContent = v;
+  b.onclick = () => setView(v);
+  document.getElementById('views').append(b);
+}
+
+const mixer = new THREE.AnimationMixer(scene);
+const clock = new THREE.Clock();
+let face;
 
 new GLTFLoader().load(params.get('src') || 'model/companion.glb', (gltf) => {
-  gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   scene.add(gltf.scene);
+  gltf.scene.traverse((o) => {
+    if (o.isMesh) o.castShadow = o.receiveShadow = true;
+    if (o.isMesh && o.morphTargetDictionary && !face) face = o;
+  });
+
+  // Clip buttons
+  const actions = Object.fromEntries(gltf.animations.map((c) => [c.name, mixer.clipAction(c)]));
+  const clipRow = document.getElementById('clips');
+  const buttons = {};
+  const play = (name) => {
+    mixer.stopAllAction();
+    Object.values(buttons).forEach((b) => b.classList.remove('on'));
+    if (actions[name]) actions[name].reset().play();
+    buttons[name]?.classList.add('on');
+  };
+  for (const name of [...Object.keys(actions), 'none']) {
+    const b = document.createElement('button');
+    b.textContent = name === 'none' ? 'Rest pose' : name;
+    b.onclick = () => play(name);
+    clipRow.append(b);
+    buttons[name] = b;
+  }
+
+  // Blendshape sliders (only take effect where the playing clip doesn't drive them)
+  const morphBox = document.getElementById('morphs');
+  const setMorph = (name, v) => gltf.scene.traverse((o) => {
+    if (o.morphTargetDictionary?.[name] !== undefined) o.morphTargetInfluences[o.morphTargetDictionary[name]] = v;
+  });
+  for (const name of Object.keys(face?.morphTargetDictionary || {})) {
+    const l = document.createElement('label');
+    l.innerHTML = `<span>${name}</span><input type="range" min="0" max="1" step="0.01" value="0">`;
+    l.querySelector('input').oninput = (e) => setMorph(name, +e.target.value);
+    morphBox.append(l);
+  }
+
+  const anim = params.get('anim') || (isStatic ? 'none' : 'Idle');
+  play(anim);
+  if (isStatic) mixer.update(+(params.get('t') || 0));
+  for (const kv of (params.get('morph') || '').split(',').filter(Boolean)) {
+    const [k, v] = kv.split('=');
+    setMorph(k, +v);
+  }
   window.__ready = true;
 });
 
@@ -81,7 +145,11 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop(() => {
+  if (!isStatic) mixer.update(clock.getDelta());
+  controls.update();
+  renderer.render(scene, camera);
+});
 </script>
 </body>
 </html>

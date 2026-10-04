@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "description": "Procedural 3D model of the companion character",
   "scripts": {
-    "export": "node scripts/export-glb.mjs"
+    "export": "node scripts/export-glb.mjs",
+    "render": "node scripts/render.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"
   },
   "type": "module",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
 }

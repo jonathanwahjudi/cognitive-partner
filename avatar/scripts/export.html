@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Loaded by export-glb.mjs in headless Chromium: builds the avatar and returns the GLB as base64. -->
+<meta charset="utf-8">
+<script type="importmap">
+{ "imports": { "three": "/node_modules/three/build/three.module.js", "three/examples/jsm/": "/node_modules/three/examples/jsm/" } }
+</script>
+<script type="module">
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { buildAvatar } from '/src/buildAvatar.js';
+
+try {
+  const { scene, clips } = buildAvatar();
+  const glb = await new GLTFExporter().parseAsync(scene, { binary: true, animations: clips, maxTextureSize: 1024 });
+  const bytes = new Uint8Array(glb);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  window.__glb = btoa(bin);
+} catch (e) {
+  window.__error = e.stack || String(e);
+}
+</script>
