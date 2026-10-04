@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Goblin Helm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed studio viewport; the HUD sits in the corners like the margins of a turnaround sheet */
+:root {
+  --ink: #0b0e0c;
+  --panel: rgba(17, 22, 18, 0.74);
+  --line: rgba(183, 212, 143, 0.2);
+  --fg: #e3e8dd;
+  --muted: #8e9a88;
+  --accent: #b5d38c;
+  --display: "Saira Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --gutter: 16px;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--ink);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 14px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+#stage {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+#stage.dragging { cursor: grabbing; }
+
+.hud { position: fixed; z-index: 2; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+
+.eyebrow {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: flex; align-items: center; gap: 10px;
+}
+.eyebrow::after {
+  content: ""; height: 1px; width: 56px;
+  background: var(--line);
+}
+
+/* top-left: title block */
+.title {
+  top: calc(env(safe-area-inset-top, 0px) + 20px);
+  left: calc(env(safe-area-inset-left, 0px) + var(--gutter) + 8px);
+  max-width: min(340px, calc(100vw - 2 * var(--gutter)));
+  display: grid; gap: 6px;
+  pointer-events: none;
+}
+.title h1 {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 0.92;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+.title p { margin: 4px 0 0; color: var(--muted); line-height: 1.5; max-width: 34ch; }
+
+/* top-right: camera readout */
+.readout {
+  top: calc(env(safe-area-inset-top, 0px) + 20px);
+  right: calc(env(safe-area-inset-right, 0px) + var(--gutter) + 8px);
+  display: grid; grid-template-columns: auto auto; gap: 4px 14px;
+  font-family: var(--mono); font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  pointer-events: none;
+}
+.readout dt { letter-spacing: 0.12em; }
+.readout dd { margin: 0; color: var(--fg); text-align: right; }
+
+/* right: palette */
+.palette {
+  right: calc(env(safe-area-inset-right, 0px) + var(--gutter) + 8px);
+  top: 50%; transform: translateY(-50%);
+  display: grid; gap: 12px;
+}
+.palette ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.palette li { display: grid; grid-template-columns: 22px auto; gap: 10px; align-items: center; }
+.swatch {
+  width: 22px; height: 22px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+}
+.palette .name { font-size: 12px; line-height: 1.2; }
+.palette .hex { display: block; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* bottom: toolbar */
+.toolbar {
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  width: max-content; max-width: calc(100vw - 2 * var(--gutter));
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 18px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+.group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.group-label {
+  font-family: var(--display); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+  margin-right: 6px;
+}
+.toolbar button {
+  font: 500 12px/1 var(--display);
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+.toolbar button:hover { border-color: var(--line); }
+.toolbar button[aria-pressed="true"] { background: var(--accent); color: var(--ink); }
+.toolbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.divider { width: 1px; align-self: stretch; background: var(--line); }
+
+.status[hidden] { display: none; }
+.status {
+  position: fixed; inset: 0; z-index: 1;
+  display: grid; place-items: center;
+  font-family: var(--display); letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .title p { display: none; }
+  .readout { display: none; }
+  .palette {
+    top: auto; transform: none;
+    left: calc(env(safe-area-inset-left, 0px) + var(--gutter) + 8px);
+    right: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 150px);
+  }
+  .palette .eyebrow { display: none; }
+  .palette ul { grid-auto-flow: column; gap: 6px; }
+  .palette li { grid-template-columns: 18px; }
+  .palette .swatch { width: 18px; height: 18px; }
+  .palette .name { display: none; }
+  .divider { display: none; }
+  .toolbar { gap: 6px; padding: 8px; }
+  .toolbar button { padding: 7px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toolbar button { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Interactive 3D goblin helmet. Drag to orbit, scroll or pinch to zoom."></canvas>
+<div class="status" id="status">Forging mesh…</div>
+
+<header class="hud title">
+  <span class="eyebrow">Turnaround study</span>
+  <h1>Goblin Helm</h1>
+  <p>A procedural build of the reference sheet: chrome-green alloy, gold lenses, lilac steel crown. Drag to orbit. Scroll or pinch to zoom.</p>
+</header>
+
+<dl class="hud readout" aria-live="off">
+  <dt>AZ</dt><dd id="ro-az">000°</dd>
+  <dt>EL</dt><dd id="ro-el">+00°</dd>
+  <dt>TRIS</dt><dd id="ro-tris">—</dd>
+</dl>
+
+<aside class="hud palette" aria-label="Color palette">
+  <span class="eyebrow">Palette</span>
+  <ul>
+    <li><span class="swatch" style="background:#8bb562"></span><span class="name">Goblin green<span class="hex">#8BB562</span></span></li>
+    <li><span class="swatch" style="background:#cfc4cf"></span><span class="name">Lilac steel<span class="hex">#CFC4CF</span></span></li>
+    <li><span class="swatch" style="background:#9c8690"></span><span class="name">Mauve shadow<span class="hex">#9C8690</span></span></li>
+    <li><span class="swatch" style="background:#d6a93a"></span><span class="name">Lens gold<span class="hex">#D6A93A</span></span></li>
+    <li><span class="swatch" style="background:#1d1416"></span><span class="name">Maw<span class="hex">#1D1416</span></span></li>
+    <li><span class="swatch" style="background:#e6d0c4"></span><span class="name">Rose ivory<span class="hex">#E6D0C4</span></span></li>
+  </ul>
+</aside>
+
+<nav class="hud toolbar" aria-label="Viewer controls">
+  <div class="group" role="group" aria-label="Camera view">
+    <span class="group-label">View</span>
+    <button type="button" id="v-front" data-az="0" aria-pressed="false">Front</button>
+    <button type="button" id="v-l34" data-az="45" aria-pressed="false">L ¾</button>
+    <button type="button" id="v-left" data-az="90" aria-pressed="false">Left</button>
+    <button type="button" id="v-r34" data-az="-45" aria-pressed="false">R ¾</button>
+    <button type="button" id="v-right" data-az="-90" aria-pressed="false">Right</button>
+    <button type="button" id="v-back" data-az="180" aria-pressed="false">Back</button>
+  </div>
+  <span class="divider" aria-hidden="true"></span>
+  <div class="group" role="group" aria-label="Render mode">
+    <span class="group-label">Render</span>
+    <button type="button" id="m-chrome" data-mode="chrome" aria-pressed="true">Chrome</button>
+    <button type="button" id="m-sculpt" data-mode="sculpt" aria-pressed="false">Sculpt</button>
+    <button type="button" id="m-wire" data-mode="wire" aria-pressed="false">Wire</button>
+  </div>
+  <span class="divider" aria-hidden="true"></span>
+  <div class="group">
+    <button type="button" id="spin" aria-pressed="true">Turntable</button>
+  </div>
+</nav>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const statusEl = document.getElementById("status");
+  if (!window.THREE) { statusEl.textContent = "3D library failed to load. Reload the page."; return; }
+
+  const canvas = document.getElementById("stage");
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  } catch (e) {
+    statusEl.textContent = "WebGL is unavailable in this browser.";
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0e0c);
+  const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
+
+  const lin = (hex) => new THREE.Color(hex).convertSRGBToLinear();
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  // ---------- studio environment (softboxes reflected in the chrome) ----------
+  function buildEnvironment() {
+    const env = new THREE.Scene();
+    const dome = new THREE.SphereGeometry(20, 48, 24);
+    const p = dome.attributes.position, cols = [];
+    for (let i = 0; i < p.count; i++) {
+      const t = (p.getY(i) / 20 + 1) / 2;
+      cols.push(0.03 + 0.05 * t, 0.036 + 0.06 * t, 0.032 + 0.045 * t);
+    }
+    dome.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    env.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true })));
+    const panel = (w, h, hex, k, pos) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ color: lin(hex).multiplyScalar(k), side: THREE.DoubleSide }));
+      m.position.set(pos[0], pos[1], pos[2]); m.lookAt(0, 0, 0); env.add(m);
+    };
+    panel(10, 7, 0xfff4e8, 6.0, [-6, 7, 9]);    // key softbox, front left
+    panel(3, 14, 0xdcffc4, 4.0, [10, 1, -4]);   // green rim strip, right
+    panel(3, 14, 0xffcfe8, 3.5, [-10, 0, -5]);  // rose rim strip, left
+    panel(16, 2.2, 0xffffff, 3.0, [0, 13, -1]); // overhead strip
+    panel(6, 4, 0xfff0dc, 2.2, [8, 3, 8]);      // fill, front right
+    panel(14, 5, 0x9fbf88, 1.6, [0, -9, 6]);    // floor bounce
+    panel(5, 6, 0xf2e6ff, 2.0, [-8, -4, 6]);    // low fill, left
+    panel(5, 6, 0xe8ffd8, 1.8, [8, -4, 4]);     // low fill, right
+    panel(10, 6, 0xe0d4e6, 1.6, [0, 4, -12]);   // back wall
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const tex = pmrem.fromScene(env, 0.035).texture;
+    pmrem.dispose();
+    return tex;
+  }
+  scene.environment = buildEnvironment();
+
+  const hemi = new THREE.HemisphereLight(0xe8f0e0, 0x1a2016, 0.35);
+  scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xfff2e6, 0.9);
+  key.position.set(-3, 4, 5);
+  scene.add(key);
+
+  // ---------- head surface ----------
+  const MOUTH = { rx: 0.43, cy: -0.6, lift: 0.11, up: 0.17, down: 0.3, p: 2.8 };
+  const mouthCorner = (u) => MOUTH.cy + MOUTH.lift * u * u;
+  function mouthR(X, Y) {
+    const u = X / MOUTH.rx;
+    const dy = Y - mouthCorner(u);
+    const v = dy / (dy > 0 ? MOUTH.up : MOUTH.down);
+    return Math.pow(Math.pow(Math.abs(u), MOUTH.p) + Math.pow(Math.abs(v), MOUTH.p), 1 / MOUTH.p);
+  }
+  function mouthRim(X, R, upper) {
+    const u = X / MOUTH.rx;
+    const v = Math.pow(Math.max(0, Math.pow(R, MOUTH.p) - Math.pow(Math.abs(u), MOUTH.p)), 1 / MOUTH.p);
+    return mouthCorner(u) + (upper ? MOUTH.up * v : -MOUTH.down * v);
+  }
+  // distance to a segment plus a signed offset (positive = left of a->b) and the position along it
+  function seg(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / (L * L), 0, 1);
+    return {
+      d: Math.hypot(ax + dx * t - px, ay + dy * t - py),
+      s: (dx * (py - ay) - dy * (px - ax)) / L,
+      t,
+    };
+  }
+  const ridge = (d, w) => Math.max(0, 1 - d / w);
+  const along = (t, a, b) => smooth(0, a, t) * smooth(1, 1 - b, t);
+
+  const C_GREEN = lin(0x8bb562), C_LILAC = lin(0xcfc4cf), C_MAUVE = lin(0x9c8690),
+        C_MAW = lin(0x1d1416), C_SEAM = lin(0x3d4a33);
+
+  function shapeBase(sx, sy, sz, out) {
+    let x = sx * 0.9, y = sy * 1.16, z = sz;
+    const lo = Math.max(0, -sy), hi = Math.max(0, sy);
+    const lo16 = Math.pow(lo, 1.6);
+    x *= 1 - 0.74 * lo16;
+    z *= 1 - 0.5 * lo16;
+    z += 0.3 * Math.pow(lo, 1.5);            // chin juts forward
+    y -= 0.2 * lo * lo;                       // long jaw
+    x *= 1 + 0.07 * Math.exp(-Math.pow((sy + 0.05) / 0.3, 2)); // cheekbone width
+    const back = smooth(0.2, -0.6, sz);
+    z -= (0.5 * hi * hi * hi + 0.32 * Math.pow(hi, 6)) * (0.4 + 0.6 * back); // hood sweeps back
+    y += 0.08 * hi * hi * hi + 0.06 * Math.pow(hi, 9);                      // crown peak
+    x *= 1 - 0.12 * Math.pow(hi, 4);
+    out[0] = x; out[1] = y; out[2] = z;
+  }
+
+  function sculpt(sx, sy, sz, P, col) {
+    const X = P[0], Y = P[1], ax = Math.abs(X);
+    const fw = smooth(-0.15, 0.35, sz);  // front weight
+    let d = 0, cavity = 0;
+
+    // eye sockets (slanted almonds, outer corner high)
+    const ex0 = ax - 0.35, ey0 = Y - 0.12, ca = Math.cos(0.36), sa = Math.sin(0.36);
+    const ex = ex0 * ca + ey0 * sa, ey = -ex0 * sa + ey0 * ca;
+    const re = Math.hypot(ex / 0.235, ey / 0.112);
+    d -= 0.1 * smooth(1.05, 0.72, re);
+    d += 0.022 * Math.exp(-Math.pow((re - 1.15) / 0.12, 2));
+
+    // angry brow plates (V meeting over the nose)
+    const b = seg(ax, Y, 0.0, 0.17, 0.76, 0.43);
+    d += 0.15 * smooth(-0.045, 0.03, b.s) * smooth(0.3, 0.06, b.s) * along(b.t, 0.05, 0.12);
+
+    // forehead V ridges
+    const fv = seg(ax, Y, 0.0, 0.3, 0.36, 0.86);
+    d += 0.035 * ridge(fv.d, 0.075) * smooth(0.25, 0.4, Y);
+    d -= 0.012 * ridge(ax, 0.02) * smooth(0.28, 0.4, Y) * smooth(0.95, 0.75, Y); // center seam
+
+    // nose: flat plate that widens toward the tip
+    const nT = 0.18, nB = -0.33;
+    {
+      const k = clamp((nT - Y) / (nT - nB), 0, 1);
+      const hw = 0.045 + 0.08 * k;
+      const w = smooth(hw + 0.022, hw, ax) * smooth(nB - 0.03, nB + 0.012, Y) * smooth(nT + 0.08, nT - 0.02, Y);
+      d += (0.05 + 0.13 * k) * w;
+      d -= 0.035 * Math.exp(-(Math.pow(ax - 0.09, 2) + Math.pow(Y + 0.31, 2)) / 0.0012);
+    }
+
+    // cheekbone plates with a hard lower edge
+    const cb = seg(ax, Y, 0.2, -0.06, 0.82, -0.16);
+    d += 0.09 * smooth(-0.025, 0.02, cb.s) * smooth(0.13, 0.04, cb.s) * along(cb.t, 0.1, 0.2);
+    d -= 0.045 * smooth(0.0, -0.05, cb.s) * smooth(-0.32, -0.12, cb.s) * along(cb.t, 0.15, 0.25);
+
+    // mouth
+    const rm = mouthR(X, Y);
+    const outside = smooth(1.0, 1.15, rm);
+    const nl = seg(ax, Y, 0.13, -0.27, 0.49, -0.47); // nasolabial fold
+    d -= 0.045 * ridge(nl.d, 0.05) * outside;
+    const jw = seg(ax, Y, 0.5, -0.5, 0.2, -1.12);   // jaw ridge
+    d += 0.03 * ridge(jw.d, 0.07) * outside;
+    d += 0.035 * ridge(ax, 0.1) * smooth(-0.9, -1.0, Y) * outside; // chin keel
+    d += 0.055 * Math.exp(-Math.pow((rm - 1.1) / 0.075, 2));       // lip roll
+    cavity = 0.42 * smooth(1.0, 0.82, rm);
+
+    // muzzle: push the midface forward so the profile reads
+    d += 0.16 * Math.exp(-(X * X / 0.16 + Math.pow(Y + 0.28, 2) / 0.22));
+    d -= 0.06 * Math.exp(-(X * X / 0.3 + Math.pow(Y - 0.42, 2) / 0.05)); // sloped forehead
+
+    d *= fw; cavity *= fw;
+
+    // crown crest and back panels
+    const crestK = Math.max(smooth(0.25, 0.5, sy), smooth(-0.1, -0.5, sz) * smooth(-0.35, 0.05, sy));
+    d += 0.045 * ridge(ax, 0.17) * crestK;
+    const bk = smooth(-0.25, -0.55, sz);
+    d -= 0.018 * ridge(Math.abs(ax - 0.32), 0.022) * bk * smooth(0.5, 0.2, sy);
+
+    // hairline: green face rises to a peak, lilac crown elsewhere
+    const frontHl = Math.max(0.18, 0.66 - 0.95 * ax);
+    const hl = lerp(0.22, frontHl, smooth(-0.2, 0.3, sz));
+    const g = Y - hl;
+    d -= 0.02 * ridge(Math.abs(g), 0.045);
+
+    // color
+    const crown = smooth(-0.025, 0.025, g);
+    col.copy(C_GREEN).lerp(C_LILAC, crown);
+    const shade = smooth(0.25, -0.6, sy) * (1 - crown) * 0.25;
+    col.lerp(C_MAUVE, shade);
+    col.lerp(C_SEAM, 0.55 * ridge(Math.abs(g), 0.035));
+    col.lerp(C_MAW, smooth(0.99, 0.9, rm) * fw);
+    return { d, cavity };
+  }
+
+  function buildHead(W, H) {
+    const count = 2 + (H - 1) * W;
+    const pos = new Float32Array(count * 3), colr = new Float32Array(count * 3);
+    const P = [0, 0, 0], col = new THREE.Color();
+    let vi = 0;
+    const put = (sx, sy, sz) => {
+      shapeBase(sx, sy, sz, P);
+      const r = sculpt(sx, sy, sz, P, col);
+      const nx = sx, ny = sy * 0.6, nz = sz, nl = Math.hypot(nx, ny, nz) || 1;
+      const k = r.d - r.cavity * 0.75;
+      pos[vi * 3] = P[0] + nx / nl * k;
+      pos[vi * 3 + 1] = P[1] + ny / nl * k;
+      pos[vi * 3 + 2] = P[2] + nz / nl * k - r.cavity * 0.25;
+      colr[vi * 3] = col.r; colr[vi * 3 + 1] = col.g; colr[vi * 3 + 2] = col.b;
+      vi++;
+    };
+    put(0, 1, 0);
+    for (let j = 1; j < H; j++) {
+      const th = Math.PI * j / H, st = Math.sin(th), ct = Math.cos(th);
+      for (let i = 0; i < W; i++) {
+        const ph = 2 * Math.PI * i / W;
+        put(st * Math.sin(ph), ct, st * Math.cos(ph));
+      }
+    }
+    put(0, -1, 0);
+    const idx = [];
+    const ring = (j, i) => 1 + (j - 1) * W + (i % W);
+    for (let i = 0; i < W; i++) idx.push(0, ring(1, i), ring(1, i + 1));
+    for (let j = 1; j < H - 1; j++) {
+      for (let i = 0; i < W; i++) {
+        const a = ring(j, i), b = ring(j, i + 1), c = ring(j + 1, i), e = ring(j + 1, i + 1);
+        idx.push(a, c, b, b, c, e);
+      }
+    }
+    const last = count - 1;
+    for (let i = 0; i < W; i++) idx.push(ring(H - 1, i), last, ring(H - 1, i + 1));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colr, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // ---------- materials ----------
+  const chrome = {
+    head: new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, vertexColors: true, metalness: 1, roughness: 0.22,
+      clearcoat: 0.7, clearcoatRoughness: 0.1,
+      iridescence: 0.5, iridescenceIOR: 1.45, iridescenceThicknessRange: [200, 520],
+    }),
+    ear: new THREE.MeshPhysicalMaterial({
+      color: C_GREEN, metalness: 1, roughness: 0.22, clearcoat: 0.7, clearcoatRoughness: 0.1,
+      iridescence: 0.5, iridescenceIOR: 1.45, iridescenceThicknessRange: [200, 520],
+    }),
+    earInner: new THREE.MeshPhysicalMaterial({
+      color: C_MAUVE, metalness: 1, roughness: 0.3, clearcoat: 0.5,
+      iridescence: 0.4, iridescenceThicknessRange: [200, 500],
+    }),
+    lens: new THREE.MeshPhysicalMaterial({
+      color: lin(0xd6a93a), metalness: 1, roughness: 0.06, clearcoat: 1, clearcoatRoughness: 0.03,
+    }),
+    tooth: new THREE.MeshPhysicalMaterial({
+      color: lin(0xe6d0c4), metalness: 0.55, roughness: 0.26, clearcoat: 0.9, clearcoatRoughness: 0.08,
+    }),
+  };
+  const clay = new THREE.MeshStandardMaterial({ color: 0x6c6c69, roughness: 0.5, metalness: 0, envMapIntensity: 0.3 });
+  const clayDark = new THREE.MeshStandardMaterial({ color: 0x4a4946, roughness: 0.6, metalness: 0, envMapIntensity: 0.3 });
+  const wire = new THREE.MeshBasicMaterial({ color: 0xc9d6c0, wireframe: true, transparent: true, opacity: 0.22 });
+
+  const helm = new THREE.Group();
+  scene.add(helm);
+  const parts = []; // { mesh, chrome, sculpt }
+  const addPart = (mesh, chromeMat, sculptMat) => { helm.add(mesh); parts.push({ mesh, chrome: chromeMat, sculpt: sculptMat || clay }); return mesh; };
+
+  const headHi = buildHead(320, 240), headLo = buildHead(112, 84);
+  const head = addPart(new THREE.Mesh(headHi, chrome.head), chrome.head);
+  head.updateMatrixWorld();
+
+  // ---------- ears: swept blades with an inset ----------
+  function earShape(s) {
+    const sh = new THREE.Shape();
+    sh.moveTo(-0.08 * s, -0.28 * s);
+    sh.quadraticCurveTo(0.0, 0.55 * s, 0.24 * s, 1.42 * s);
+    sh.quadraticCurveTo(0.66 * s, 0.45 * s, 0.5 * s, -0.12 * s);
+    sh.quadraticCurveTo(0.2 * s, -0.42 * s, -0.08 * s, -0.28 * s);
+    return sh;
+  }
+  const earGeo = new THREE.ExtrudeGeometry(earShape(1), {
+    depth: 0.05, bevelEnabled: true, bevelThickness: 0.035, bevelSize: 0.03, bevelSegments: 4, curveSegments: 40,
+  });
+  earGeo.rotateY(Math.PI / 2);
+  const innerGeo = new THREE.ExtrudeGeometry(earShape(0.62), {
+    depth: 0.02, bevelEnabled: true, bevelThickness: 0.015, bevelSize: 0.015, bevelSegments: 3, curveSegments: 32,
+  });
+  innerGeo.rotateY(Math.PI / 2);
+  innerGeo.translate(0.075, 0.12, -0.06);
+  for (const s of [1, -1]) {
+    const ear = new THREE.Group();
+    ear.add(addPart(new THREE.Mesh(earGeo, chrome.ear), chrome.ear));
+    ear.add(addPart(new THREE.Mesh(innerGeo, chrome.earInner), chrome.earInner, clayDark));
+    ear.position.set(0.72 * s, 0.0, 0.1);
+    ear.rotation.set(-0.08, 0.5 * s, -0.32 * s);
+    ear.scale.set(s, 1, 1);
+    helm.add(ear);
+  }
+
+  // ---------- raycast helper to sit details on the sculpted surface ----------
+  const ray = new THREE.Raycaster();
+  function surfaceAt(x, y) {
+    ray.set(new THREE.Vector3(x, y, 4), new THREE.Vector3(0, 0, -1));
+    const hit = ray.intersectObject(head, false)[0];
+    return hit ? { p: hit.point, n: hit.face.normal.clone() } : null;
+  }
+
+  // ---------- eyes ----------
+  const lensGeo = new THREE.SphereGeometry(1, 64, 40);
+  for (const s of [1, -1]) {
+    const hit = surfaceAt(0.35 * s, 0.12);
+    const lens = new THREE.Mesh(lensGeo, chrome.lens);
+    lens.scale.set(0.215, 0.1, 0.085);
+    lens.position.set(0.35 * s, 0.12, (hit ? hit.p.z : 0.8) - 0.005);
+    lens.rotation.set(0, 0.42 * s, 0.36 * s);
+    addPart(lens, chrome.lens, clayDark);
+  }
+
+  // ---------- teeth ----------
+  const toothGeo = new THREE.ConeGeometry(1, 1, 12, 1);
+  toothGeo.scale(1, 1, 0.7);
+  function tooth(x, upper, h, r) {
+    const yRim = mouthRim(x, 1.0, upper);
+    const hit = surfaceAt(x, yRim + (upper ? 0.035 : -0.035));
+    if (!hit) return;
+    const m = new THREE.Mesh(toothGeo, chrome.tooth);
+    m.scale.set(r, h, r);
+    const inset = hit.n.clone().multiplyScalar(-0.06);
+    m.position.set(x + inset.x * 0.5, yRim + (upper ? -h / 2 + 0.035 : h / 2 - 0.035), hit.p.z + inset.z);
+    m.rotation.set(upper ? Math.PI + 0.12 : -0.12, 0, (upper ? 1 : -1) * x * 0.5);
+    addPart(m, chrome.tooth);
+  }
+  for (let k = 0; k < 11; k++) {
+    const x = -0.34 + k * 0.068;
+    const fang = Math.abs(Math.abs(x) - 0.272) < 0.01;
+    tooth(x, true, fang ? 0.24 : 0.11 + 0.02 * Math.cos(x * 6), fang ? 0.04 : 0.028);
+  }
+  for (let k = 0; k < 9; k++) {
+    const x = -0.28 + k * 0.07;
+    const fang = Math.abs(Math.abs(x) - 0.21) < 0.01;
+    tooth(x, false, fang ? 0.17 : 0.08, fang ? 0.032 : 0.025);
+  }
+
+  // ---------- contact shadow ----------
+  {
+    const c = document.createElement("canvas"); c.width = c.height = 256;
+    const g = c.getContext("2d");
+    const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grd.addColorStop(0, "rgba(0,0,0,0.85)"); grd.addColorStop(0.5, "rgba(0,0,0,0.35)"); grd.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(0, -1.62, 0.1);
+    scene.add(shadow);
+  }
+
+  function countTris() {
+    let tris = 0;
+    for (const { mesh } of parts) {
+      const g = mesh.geometry;
+      tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    }
+    document.getElementById("ro-tris").textContent = Math.round(tris).toLocaleString("en-US");
+  }
+  countTris();
+
+  // ---------- render modes ----------
+  function setMode(mode) {
+    for (const p of parts) p.mesh.material = mode === "chrome" ? p.chrome : mode === "sculpt" ? p.sculpt : wire;
+    head.geometry = mode === "wire" ? headLo : headHi;
+    wire.opacity = 0.32;
+    scene.environment = mode === "wire" ? null : envTex;
+    document.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+    countTris();
+  }
+  const envTex = scene.environment;
+  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+
+  // ---------- orbit camera ----------
+  const target = new THREE.Vector3(0, -0.08, 0);
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const cam = { az: 0.55, el: 0.08, dist: 8 };
+  const goal = { az: 0.55, el: 0.08, dist: 8 };
+  let spin = !reduceMotion;
+  const spinBtn = document.getElementById("spin");
+  const syncSpin = () => spinBtn.setAttribute("aria-pressed", String(spin));
+  syncSpin();
+  spinBtn.addEventListener("click", () => { spin = !spin; syncSpin(); });
+
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const viewBtns = document.querySelectorAll("[data-az]");
+  viewBtns.forEach((b) => b.addEventListener("click", () => {
+    const a = (+b.dataset.az) * Math.PI / 180;
+    goal.az = cam.az + wrap(a - cam.az);
+    goal.el = 0.04;
+    spin = false; syncSpin();
+  }));
+
+  const pointers = new Map();
+  let pinchStart = 0, distStart = 0;
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.classList.add("dragging");
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinchStart = Math.hypot(a.x - b.x, a.y - b.y); distStart = goal.dist;
+    }
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    const prev = pointers.get(e.pointerId);
+    if (!prev) return;
+    const cur = { x: e.clientX, y: e.clientY };
+    pointers.set(e.pointerId, cur);
+    if (pointers.size === 1) {
+      goal.az -= (cur.x - prev.x) * 0.008;
+      goal.el = clamp(goal.el + (cur.y - prev.y) * 0.006, -1.1, 1.2);
+    } else if (pointers.size === 2 && pinchStart) {
+      const [a, b] = [...pointers.values()];
+      goal.dist = clamp(distStart * pinchStart / Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), 3.5, 16);
+    }
+  });
+  const release = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStart = 0;
+    if (!pointers.size) canvas.classList.remove("dragging");
+  };
+  canvas.addEventListener("pointerup", release);
+  canvas.addEventListener("pointercancel", release);
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    goal.dist = clamp(goal.dist * Math.exp(e.deltaY * 0.0012), 3.5, 16);
+  }, { passive: false });
+
+  let fitDist = 8;
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const halfH = 1.75, halfW = 1.3;
+    const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const next = Math.max(halfH / t, halfW / (t * camera.aspect)) * 1.12;
+    if (Math.abs(goal.dist - fitDist) < 0.01) goal.dist = next;
+    if (!started) cam.dist = next;
+    fitDist = next;
+  }
+  let started = false;
+  window.addEventListener("resize", resize);
+  resize();
+  goal.dist = cam.dist = fitDist;
+
+  const roAz = document.getElementById("ro-az"), roEl = document.getElementById("ro-el");
+  const pad = (n, w) => String(n).padStart(w, "0");
+  let last = performance.now(), roTick = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (spin && !pointers.size) goal.az += dt * 0.32;
+    const k = 1 - Math.pow(0.0015, dt);
+    cam.az += (goal.az - cam.az) * k;
+    cam.el += (goal.el - cam.el) * k;
+    cam.dist += (goal.dist - cam.dist) * k;
+    const ce = Math.cos(cam.el);
+    camera.position.set(
+      target.x + cam.dist * Math.sin(cam.az) * ce,
+      target.y + cam.dist * Math.sin(cam.el),
+      target.z + cam.dist * Math.cos(cam.az) * ce);
+    camera.lookAt(target);
+    key.position.copy(camera.position).add(new THREE.Vector3(-3, 4, 0));
+    renderer.render(scene, camera);
+    if (!started) { started = true; statusEl.hidden = true; }
+    if ((roTick = (roTick + 1) % 6) === 0) {
+      const deg = ((Math.round(cam.az * 180 / Math.PI) % 360) + 360) % 360;
+      const el = Math.round(cam.el * 180 / Math.PI);
+      roAz.textContent = pad(deg, 3) + "°";
+      roEl.textContent = (el < 0 ? "−" : "+") + pad(Math.abs(el), 2) + "°";
+      viewBtns.forEach((b) => {
+        const a = (+b.dataset.az) * Math.PI / 180;
+        b.setAttribute("aria-pressed", String(!spin && Math.abs(wrap(a - cam.az)) < 0.03));
+      });
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
