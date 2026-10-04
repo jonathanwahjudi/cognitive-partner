@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Companion Avatar Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #f4f1ee; font-family: system-ui, sans-serif; }
+  canvas { display: block; }
+  #hint { position: fixed; left: 12px; bottom: 10px; color: #8a807a; font-size: 12px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hint">Drag to orbit · scroll to zoom · ?view=front|quarter|side|back</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const params = new URLSearchParams(location.search);
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf4f1ee);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd9cfc8, 1.6));
+const key = new THREE.DirectionalLight(0xfff4ec, 2.2);
+key.position.set(1.5, 3, 2.5);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = key.shadow.camera.bottom = -1.2;
+key.shadow.camera.right = key.shadow.camera.top = 1.2;
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xe8eeff, 0.8);
+rim.position.set(-2, 2, -2);
+scene.add(rim);
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(1.2, 64), new THREE.ShadowMaterial({ opacity: 0.12 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const camera = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.05, 50);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.85, 0);
+controls.enableDamping = true;
+
+const views = { front: 0, quarter: 35, side: 90, back: 180, face: 0 };
+function setView(name) {
+  const deg = views[name] ?? 0;
+  const a = THREE.MathUtils.degToRad(deg);
+  const close = name === 'face';
+  const dist = close ? 0.6 : 3.6;
+  controls.target.set(0, close ? 1.53 : 0.84, 0);
+  camera.position.set(Math.sin(a) * dist, close ? 1.54 : 0.95, Math.cos(a) * dist);
+  controls.update();
+}
+setView(params.get('view') || 'quarter');
+
+new GLTFLoader().load(params.get('src') || 'model/companion.glb', (gltf) => {
+  gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(gltf.scene);
+  window.__ready = true;
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
